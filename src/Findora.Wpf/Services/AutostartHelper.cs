@@ -29,7 +29,7 @@ namespace Findora.Wpf.Services
         {
             try
             {
-                using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, true);
+                using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath, true);
                 if (key == null) return false;
 
                 if (enable)
