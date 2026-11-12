@@ -1,0 +1,68 @@
+# ==============================================================================
+# Findora — Comprehensive .gitignore
+# ==============================================================================
+
+# --- .NET & Visual Studio ---
+[Bb]in/
+[Oo]bj/
+**/[Bb]in/
+**/[Oo]bj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+TestResults/
+*.resharper
+*.dotCover
+
+# --- Python ---
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.pyo
+.pytest_cache/
+**/.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtual Environments ---
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# --- Build & Distribution Artifacts ---
+dist/
+build/py_dist/
+build/py_work/
+build/temp/
+*.spec
+*.pdb
+
+# --- Databases, Logs & Runtime State ---
+*.db
+*.db-wal
+*.db-shm
+*.log
+*.sqlite
+*.sqlite3
+bplus_tree_test_data/
+
+# --- Temporary Files & Test Output ---
+test.txt
+temp/
+tmp/
+*.tmp
+
+# --- OS Metadata ---
+Thumbs.db
+desktop.ini
+.DS_Store
