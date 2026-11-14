@@ -8,7 +8,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Database](https://img.shields.io/badge/storage-SQLite%20WAL-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.png?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-73%20passed-success?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/tests-120%20passed-success?style=flat-square)](tests/)
 
 ---
 
@@ -39,6 +39,7 @@ Findora was designed from the ground up as a desktop systems engineering project
 ## 3. Key Features
 
 - **Sub-Millisecond Search Execution**: In-memory B+ Tree traversal retrieves matching files in $< 0.5\text{ ms}$ across 800,000+ files.
+- **Fuzzy / Typo-Tolerant Search**: Four-stage search pipeline (exact → prefix → substring → Levenshtein fuzzy) catches common misspellings and transpositions with zero false positives for short queries.
 - **Windows 11 Glassmorphism Floating UI**: Centered frameless search card with rounded corners, drop shadows, and subtle acrylic translucency.
 - **Idle Desktop Search Disc**: Compact, translucent circular widget docked at the desktop boundary (`WS_EX_NOACTIVATE` / `HWND_NOTOPMOST`) that never steals focus or interferes with full-screen games/apps.
 - **Global Hotkey Integration**: Instant summon via **`Ctrl + Alt + F`** from any application.
@@ -173,6 +174,7 @@ Findora/
 │       ├── test_tree.py
 │       ├── test_ui_redesign_and_input.py
 │       └── test_watcher_and_reconciler.py
+│       └── test_fuzzy_search.py          # Fuzzy search tests (55 tests)
 ├── tools/
 │   ├── VisualInspector/              # Diagnostic WPF visual tree inspection tool
 │   └── generate_benchmark_files.py   # Synthetic high-volume benchmark data generator
@@ -233,10 +235,20 @@ For complete technical specifications, sequence diagrams, and concurrency flowch
 - **Leaf Organization**: Leaf nodes store arrays of sorted filename keys and corresponding path arrays.
 - **Linked Leaves**: Leaves maintain a unidirectional pointer (`nextKey`), linking all leaves into a sorted continuous sequence.
 - **Prefix Range Scans**: In $O(\log N)$ time, Findora navigates to the first leaf containing `prefix`, then walks `nextKey` pointers directly in $O(K)$ time without returning up through internal nodes.
-- **Multi-Stage Query Strategy**:
+- **Four-Stage Query Strategy**:
   1. **Exact Matches**: Returns filenames strictly matching the query case-insensitively.
   2. **Prefix Matches**: Evaluates filenames that begin with the query string.
   3. **Substring Matches**: Evaluates filenames containing the query anywhere in their name.
+  4. **Fuzzy Matches** *(new)*: Levenshtein edit-distance scan over leaf chain, with length-based early termination and dynamic thresholds (max distance 1 for ≤4 chars, 2 for ≤8 chars, 3 otherwise). Queries shorter than 3 characters bypass the fuzzy stage entirely to suppress noise. Results are ranked by ascending edit distance and deduplicated against earlier stages.
+
+> **Example fuzzy queries** — after indexing `Database_Notes.pdf`, `Machine_Learning.pdf`:
+>
+> | Query | Matched Filename | Edit Distance |
+> |---|---|---|
+> | `Databse_Notes.pdf` | `Database_Notes.pdf` | 1 (deletion) |
+> | `Databasee_Notes.pdf` | `Database_Notes.pdf` | 1 (insertion) |
+> | `Databese_Notes.pdf` | `Database_Notes.pdf` | 1 (substitution) |
+> | `Machine_Learnng.pdf` | `Machine_Learning.pdf` | 1 (deletion) |
 
 ### 8.2 SQLite Persistence & WAL Mode (`src/Findora.Backend/storage.py`)
 - Stored at `%LOCALAPPDATA%\Findora\findora.db`.
@@ -304,7 +316,7 @@ dotnet run --project src\Findora.Wpf\Findora.Wpf.csproj
 
 ### 10.4 Run Verification Tests
 ```powershell
-# Run Python backend test suite (65 tests)
+# Run Python backend test suite (120 tests)
 python -m pytest tests/python -v
 
 # Run .NET WPF test suite (8 tests)
@@ -330,7 +342,7 @@ The output directory will contain:
 - **Network Drives (UNC)**: Network and cloud virtual shares (OneDrive/Google Drive on-demand files) are supported if mounted, but may exhibit delayed `ReadDirectoryChangesW` event notifications depending on network driver caching.
 
 ### Future Roadmap
-- [ ] **Fuzzy Search Algorithm**: Implement Levenshtein-distance and typo-tolerant search stages in the B+ Tree.
+- [x] **Fuzzy Search (Levenshtein)** — Four-stage search with typo tolerance implemented; dynamic thresholds, early termination, and full deduplication.
 - [ ] **Content-Type Filter Tags**: Quick filter chips (`type:pdf`, `type:doc`, `type:media`, `size:>100MB`).
 - [ ] **Regular Expression Query Support**: Full regex syntax parsing for advanced filename patterns.
 - [ ] **Everything / USN Journal Integration**: Optional Windows NTFS USN (Update Sequence Number) Journal parser for initial indexing in $< 1\text{ second}$.

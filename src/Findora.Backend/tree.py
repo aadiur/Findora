@@ -195,19 +195,81 @@ class BplusTree:
             curr = next_node
         return results
 
+    @staticmethod
+    def _fuzzy_threshold(query_len: int) -> int:
+        """
+        Returns the maximum Levenshtein edit distance allowed for a query of a given length.
+        Short queries are protected from noisy fuzzy matches.
+        """
+        if query_len <= 2:
+            return 0  # no fuzzy for very short queries
+        if query_len <= 4:
+            return 1
+        if query_len <= 8:
+            return 2
+        return 3
+
+    @staticmethod
+    def _levenshtein(a: str, b: str, max_dist: int) -> int:
+        """
+        Compute Levenshtein edit distance between strings a and b using
+        an optimized single-row rolling DP with early termination.
+
+        Returns the edit distance, or max_dist + 1 if it exceeds max_dist.
+        """
+        len_a, len_b = len(a), len(b)
+        # Length-difference pre-filter
+        if abs(len_a - len_b) > max_dist:
+            return max_dist + 1
+
+        # Ensure a is the shorter string for memory efficiency
+        if len_a > len_b:
+            a, b = b, a
+            len_a, len_b = len_b, len_a
+
+        # Single-row DP (previous row and current row only)
+        prev = list(range(len_a + 1))
+        for j in range(1, len_b + 1):
+            curr_row = [j] + [0] * len_a
+            row_min = j
+            for i in range(1, len_a + 1):
+                cost = 0 if b[j - 1] == a[i - 1] else 1
+                curr_row[i] = min(
+                    curr_row[i - 1] + 1,   # insertion
+                    prev[i] + 1,           # deletion
+                    prev[i - 1] + cost,    # substitution
+                )
+                if curr_row[i] < row_min:
+                    row_min = curr_row[i]
+            # Early termination: if the minimum value in this row already
+            # exceeds max_dist, no path can improve below the threshold.
+            if row_min > max_dist:
+                return max_dist + 1
+            prev = curr_row
+
+        return prev[len_a]
+
     def search_query(self, query: str, limit: int = 100):
         """
         Case-insensitive multi-stage search returning:
         1. Exact matches
         2. Prefix matches
         3. Substring matches
+        4. Fuzzy matches (Levenshtein edit distance, length-based threshold)
+
+        All four stages share a single O(N) leaf-chain traversal so the total
+        cost of the full pipeline is the same as the original three-stage search.
         """
         if not query:
             return []
         query_lower = query.lower()
+        query_len = len(query_lower)
+        max_dist = self._fuzzy_threshold(query_len)
+
         exact_matches = []
         prefix_matches = []
         substr_matches = []
+        fuzzy_candidates = []  # (edit_distance, filename, paths)
         seen = set()
 
         curr = self.get_first_leaf()
@@ -232,12 +294,66 @@ class BplusTree:
                     if val not in seen:
                         seen.add(val)
                         substr_matches.append((val, paths))
+                elif max_dist > 0:
+                    # Fuzzy candidate: apply length pre-filter before computing distance
+                    val_len = len(val_lower)
+                    if val not in seen and abs(val_len - query_len) <= max_dist:
+                        dist = self._levenshtein(query_lower, val_lower, max_dist)
+                        if dist <= max_dist:
+                            fuzzy_candidates.append((dist, val, paths))
             curr = next_node
 
-        combined = exact_matches + prefix_matches + substr_matches
+        # Sort fuzzy results by ascending edit distance (closest first)
+        fuzzy_candidates.sort(key=lambda x: x[0])
+        fuzzy_matches = [(val, paths) for _, val, paths in fuzzy_candidates]
+
+        combined = exact_matches + prefix_matches + substr_matches + fuzzy_matches
         if limit:
             return combined[:limit]
         return combined
+
+    def _fuzzy_scan(self, query_lower: str, seen: set, max_dist: int, limit):
+        """
+        Full leaf-chain scan for fuzzy (Levenshtein) matches not already in `seen`.
+        Returns a list of (filename, paths) tuples sorted by ascending edit distance.
+        Only filenames whose length is within max_dist of the query length are considered
+        (length pre-filter), dramatically reducing unnecessary distance computations.
+        """
+        query_len = len(query_lower)
+        candidates = []  # (edit_distance, filename, paths)
+
+        curr = self.get_first_leaf()
+        while curr:
+            with curr.lock:
+                node_values = list(curr.values)
+                node_keys = [list(k) for k in curr.keys]
+                next_node = curr.nextKey
+
+            for i, val in enumerate(node_values):
+                if val in seen:
+                    continue
+                val_lower = val.lower()
+                val_len = len(val_lower)
+                # Length pre-filter: impossible to be within max_dist if lengths differ too much
+                if abs(val_len - query_len) > max_dist:
+                    continue
+                dist = self._levenshtein(query_lower, val_lower, max_dist)
+                if dist <= max_dist:
+                    paths = node_keys[i] if i < len(node_keys) else []
+                    candidates.append((dist, val, paths))
+
+            curr = next_node
+
+        # Sort by edit distance (ascending) so closest matches come first
+        candidates.sort(key=lambda x: x[0])
+
+        result = []
+        for dist, val, paths in candidates:
+            if limit and len(result) >= limit:
+                break
+            seen.add(val)
+            result.append((val, paths))
+        return result
 
     def count_total_files(self) -> int:
         """Counts total indexed paths across all leaf nodes."""
