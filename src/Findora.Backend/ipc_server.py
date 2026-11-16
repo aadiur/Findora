@@ -104,18 +104,35 @@ class FindoraIpcServer:
         self._initial_load_done = True
 
     def _start_watchers(self):
-        drives = self.storage.get_drives()
-        letters = [d["drive_letter"] for d in drives if d.get("status") in ("indexed", "ready")]
-        if not letters:
-            discovered = discover_local_drives()
-            letters = [d.letter for d in discovered]
-        self.watcher_manager.start_watching_drives(letters)
+        locations = self.storage.get_indexed_locations()
+        if locations:
+            paths = [loc["path"] for loc in locations if loc.get("is_monitored", 1)]
+            self.watcher_manager.start_watching_drives(paths)
+        else:
+            drives = self.storage.get_drives()
+            letters = [d["drive_letter"] for d in drives if d.get("status") in ("indexed", "ready")]
+            if not letters:
+                discovered = discover_local_drives()
+                letters = [d.letter for d in discovered]
+            self.watcher_manager.start_watching_drives(letters)
 
     def _initial_scan_worker(self):
-        self.scanner.scan_all_drives()
+        locations = self.storage.get_indexed_locations()
+        if locations:
+            for loc in locations:
+                self.scanner.scan_folder(loc["path"])
+            self.queue_manager.wait_empty()
+            self.watcher_manager.start_watching_drives([loc["path"] for loc in locations])
+        else:
+            self.scanner.scan_all_drives()
+            self.queue_manager.wait_empty()
+            discovered = discover_local_drives()
+            self.watcher_manager.start_watching_drives([d.letter for d in discovered])
+
+    def _scan_location_worker(self, path: str):
+        self.scanner.scan_folder(path)
         self.queue_manager.wait_empty()
-        discovered = discover_local_drives()
-        self.watcher_manager.start_watching_drives([d.letter for d in discovered])
+        self.watcher_manager.start_watching_drives([path])
 
     def _startup_reconcile_worker(self):
         self.reconciler.reconcile_all_drives()
@@ -290,6 +307,36 @@ class FindoraIpcServer:
                     self._send_response(req_id, result={"removed": True, "pattern": pattern})
                 else:
                     self._send_response(req_id, error="Empty exclusion pattern")
+
+            elif method == "folders_get":
+                locations = self.storage.get_indexed_locations()
+                drives = self.storage.get_drives()
+                self._send_response(req_id, result={
+                    "locations": locations,
+                    "drives": drives
+                })
+
+            elif method == "folders_add":
+                path = params.get("path", "").strip()
+                if path and os.path.exists(path):
+                    norm = os.path.normpath(path)
+                    self.storage.add_indexed_location(norm)
+                    threading.Thread(target=self._scan_location_worker, args=(norm,), daemon=True).start()
+                    self._send_response(req_id, result={"added": True, "path": norm})
+                elif path:
+                    self._send_response(req_id, error=f"Folder not found: {path}")
+                else:
+                    self._send_response(req_id, error="Empty folder path")
+
+            elif method == "folders_remove":
+                path = params.get("path", "").strip()
+                if path:
+                    norm = os.path.normpath(path)
+                    self.storage.remove_indexed_location(norm)
+                    self.storage.delete_files_in_prefix(norm)
+                    self._send_response(req_id, result={"removed": True, "path": norm})
+                else:
+                    self._send_response(req_id, error="Empty folder path")
 
             elif method == "shutdown":
                 self._send_response(req_id, result={"shutdown": True})

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
@@ -35,6 +36,7 @@ namespace Findora.Wpf.Views
 
             if (_backend != null)
             {
+                await LoadFoldersAsync();
                 await LoadExclusionsAsync();
             }
         }
@@ -61,6 +63,72 @@ namespace Findora.Wpf.Views
         {
             if (_isUpdatingUi) return;
             AutostartHelper.SetEnabled(AutostartCheckBox.IsChecked == true);
+        }
+
+        private async Task LoadFoldersAsync()
+        {
+            if (_backend == null) return;
+            try
+            {
+                var res = await _backend.SendRequestAsync("folders_get");
+                FoldersListBox.Items.Clear();
+                if (res.TryGetProperty("locations", out var locList) && locList.ValueKind == JsonValueKind.Array && locList.GetArrayLength() > 0)
+                {
+                    foreach (var item in locList.EnumerateArray())
+                    {
+                        if (item.TryGetProperty("path", out var p))
+                        {
+                            FoldersListBox.Items.Add(p.GetString());
+                        }
+                    }
+                }
+                else
+                {
+                    FoldersListBox.Items.Add("All Local Drives (Default)");
+                }
+            }
+            catch { }
+        }
+
+        private async void AddFolderButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_backend == null) return;
+            var dialog = new Microsoft.Win32.OpenFolderDialog
+            {
+                Title = "Select Folder to Index in Findora",
+                Multiselect = false
+            };
+
+            if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.FolderName))
+            {
+                string selectedPath = dialog.FolderName;
+                try
+                {
+                    await _backend.SendRequestAsync("folders_add", new Dictionary<string, object> { { "path", selectedPath } });
+                    await LoadFoldersAsync();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to add folder: {ex.Message}", "Findora Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+        }
+
+        private async void RemoveFolderButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_backend == null) return;
+            if (FoldersListBox.SelectedItem is string path && path != "All Local Drives (Default)")
+            {
+                try
+                {
+                    await _backend.SendRequestAsync("folders_remove", new Dictionary<string, object> { { "path", path } });
+                    await LoadFoldersAsync();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to remove folder: {ex.Message}", "Findora Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
         }
 
         private async Task LoadExclusionsAsync()

@@ -20,15 +20,26 @@ This guide covers setup prerequisites, standalone installation, and building fro
 
 The standalone release requires **no prior installation of Python, .NET SDK, or external compilers**.
 
-1. Download the latest release package (`Findora-vX.Y.Z-win-x64.zip`) from the [Findora Releases](https://github.com/aadiur/Findora/releases) page.
-2. Extract the archive into a permanent directory, e.g.:
-   ```text
-   C:\Program Files\Findora\
-   ```
-   *(or `%LOCALAPPDATA%\Programs\Findora` for per-user non-admin installation).*
+### Option A: Modern Windows Installer (Recommended)
+1. Download `Findora-Setup-v1.0.0.exe` from the [Findora Releases](https://github.com/aadiur/Findora/releases) page.
+2. Run the installer. It installs cleanly into `%LOCALAPPDATA%\Programs\Findora` without requiring administrator privileges or UAC elevation.
+3. Check the box to launch Findora upon completion. Start Menu and optional Desktop shortcuts are created automatically.
+
+### Option B: Portable ZIP Edition
+1. Download `Findora-v1.0.0-windows-x64.zip` from the [Findora Releases](https://github.com/aadiur/Findora/releases) page.
+2. Extract the archive into any directory (e.g. `C:\Tools\Findora\` or a USB drive).
 3. Run `Findora.exe`.
-4. The initial launch will discover local fixed drives and perform background indexing.
-5. Use the global shortcut **`Ctrl + Alt + F`** or click the floating desktop widget to open search.
+
+### First-Time Launch & SmartScreen
+Because Findora is an open-source project without a paid EV code-signing certificate, Windows SmartScreen may show an *"Unknown Publisher"* warning.
+- Click **More info** &rarr; **Run anyway**.
+- You can verify package integrity against the published `SHA256SUMS.txt` cryptographic hash file.
+
+### First-Run Folder Configuration
+1. Open Findora (hotkey: **`Ctrl + Alt + F`** or click the floating desktop disc).
+2. Click the **⚙️ Settings** icon in the search bar.
+3. Under **Indexed Folders**, click **+ Add Folder...** to choose specific directories or drives to index.
+4. Searches run instantly in $< 1\text{ ms}$ as the background engine indexes and monitors file changes.
 
 ---
 
@@ -77,11 +88,13 @@ powershell -ExecutionPolicy Bypass -File build\build_release.ps1
 ```
 
 ### Build Pipeline Steps Executed:
-1. **Quality Gate**: Runs full Python unit test suite and .NET xUnit test suite.
+1. **Quality Gate**: Runs full Python unit test suite (120 tests) and .NET xUnit test suite (12 tests) — 132 tests total.
 2. **Directory Initialization**: Prepares `dist\Findora\` and `dist\Findora\backend\`.
 3. **PyInstaller Compilation**: Bundles Python runtime, standard library, and dependencies into `dist\Findora\backend\FindoraBackend.exe`.
-4. **.NET WPF Compilation**: Publishes `Findora.exe` in `Release` configuration into `dist\Findora\`.
+4. **.NET WPF Compilation**: Publishes `Findora.exe` in `Release` configuration (self-contained win-x64 single file) into `dist\Findora\`.
 5. **Sanity Verification**: Validates presence of both primary executables.
+6. **Package Generation**: Compiles `dist\Findora-Setup-v1.0.0.exe` via Inno Setup 6 and compresses `dist\Findora-v1.0.0-windows-x64.zip`.
+7. **Checksum Generation**: Outputs `dist\SHA256SUMS.txt` with SHA-256 hashes of all distributables.
 
 ---
 

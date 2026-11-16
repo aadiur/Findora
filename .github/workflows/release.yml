@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Package Windows Release
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install Python & Build Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m pip install pyinstaller
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --no-progress
+
+      - name: Execute Automated Release Build
+        run: |
+          powershell -ExecutionPolicy Bypass -File build\build_release.ps1
+
+      - name: Create GitHub Release and Upload Artifacts
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/Findora-Setup-v1.0.0.exe
+            dist/Findora-v1.0.0-windows-x64.zip
+            dist/SHA256SUMS.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true

@@ -20,6 +20,7 @@ namespace Findora.Wpf.Services
         private bool _isDisposed = false;
         private string? _configuredDbPath;
         private readonly string _logFilePath;
+        private readonly JobObjectTracker _jobTracker = new();
 
         public event Action<string, JsonElement>? EventReceived;
         public event Action? BackendReady;
@@ -151,6 +152,7 @@ namespace Findora.Wpf.Services
                 };
 
                 _process.Start();
+                _jobTracker.AssignProcess(_process);
                 _stdin = new StreamWriter(_process.StandardInput.BaseStream, new System.Text.UTF8Encoding(false))
                 {
                     AutoFlush = true
@@ -534,6 +536,7 @@ namespace Findora.Wpf.Services
             }
 
             _process?.Dispose();
+            _jobTracker.Dispose();
             _cts.Dispose();
         }
     }
