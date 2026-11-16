@@ -112,6 +112,15 @@ class StorageManager:
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL
                     );
+
+                    CREATE TABLE IF NOT EXISTS indexed_locations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        path TEXT UNIQUE NOT NULL,
+                        label TEXT DEFAULT '',
+                        added_at REAL DEFAULT 0,
+                        last_scan_time REAL DEFAULT 0,
+                        is_monitored INTEGER DEFAULT 1
+                    );
                 """)
                 conn.commit()
 
@@ -312,6 +321,58 @@ class StorageManager:
             try:
                 cursor = conn.cursor()
                 cursor.execute("DELETE FROM exclusions WHERE pattern = ?", (pattern,))
+                conn.commit()
+            finally:
+                conn.close()
+
+    def get_indexed_locations(self) -> List[Dict[str, Any]]:
+        """Returns list of user-configured indexed directories."""
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM indexed_locations ORDER BY path ASC")
+            return [dict(r) for r in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def add_indexed_location(self, path: str, label: str = "") -> bool:
+        """Adds a folder path to the indexed locations list."""
+        path_norm = os.path.normpath(path)
+        with self._lock:
+            conn = self.get_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO indexed_locations (path, label, added_at, is_monitored)
+                    VALUES (?, ?, ?, 1)
+                    ON CONFLICT(path) DO UPDATE SET is_monitored = 1
+                """, (path_norm, label or os.path.basename(path_norm) or path_norm, time.time()))
+                conn.commit()
+                return True
+            finally:
+                conn.close()
+
+    def remove_indexed_location(self, path: str) -> bool:
+        """Removes a folder path from the indexed locations list."""
+        path_norm = os.path.normpath(path)
+        with self._lock:
+            conn = self.get_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM indexed_locations WHERE path = ?", (path_norm,))
+                conn.commit()
+                return cursor.rowcount > 0
+            finally:
+                conn.close()
+
+    def delete_files_in_prefix(self, prefix: str):
+        """Removes all indexed files starting with the given folder prefix."""
+        prefix_norm = os.path.normpath(prefix)
+        with self._lock:
+            conn = self.get_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM files WHERE full_path LIKE ? || '%'", (prefix_norm,))
                 conn.commit()
             finally:
                 conn.close()
